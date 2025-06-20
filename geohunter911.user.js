@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         PlonkIT compact (GeoGuessr + OpenGuessr)
-// @description  HUD: Kontinent / Land / Bundesstaat / Stadt + Minikarte
+// @name         PlonkIT compact (GeoGuessr + OpenGuessr) – auto
+// @description  HUD: Kontinent / Land / Bundesstaat / Stadt + Minikarte (automatisch)
 // @match        https://www.geoguessr.com/*
 // @match        https://openguessr.com/*
 // @grant        GM_xmlhttpRequest
@@ -10,22 +10,21 @@
 (() => {
   'use strict';
 
-  /* ── Config ─────────────────────────── */
-  const KEY = 'pk.8a4add797b142c1faca647ddf8d6b000';   // LocationIQ
+  /* –– Config –– */
+  const KEY = 'pk.8a4add797b142c1faca647ddf8d6b000';
   const api = {
     geo: p => `https://us1.locationiq.com/v1/${p}&key=${KEY}`,
     map: (lat, lon, z) =>
       `https://static-maps.yandex.ru/1.x/?ll=${lon},${lat}&z=${z}&size=500,300&l=map&pt=${lon},${lat},pm2rdm&lang=en_US`
   };
 
-  /* ── State ──────────────────────────── */
+  /* –– State –– */
   const pos   = { lat: 0, lon: 0 };
   let   zoom  = 13;
   const cache = { cont: {}, cen: {} };
   const ui    = {};
-  let   locked = false;     // verhindert Bewegung während des Spiels
 
-  /* ── Helpers ────────────────────────── */
+  /* –– Helpers –– */
   const getJSON = url => new Promise(res =>
     GM_xmlhttpRequest({ url, onload: r => res(JSON.parse(r.responseText)), onerror: () => res(null) })
   );
@@ -42,38 +41,14 @@
 
   const drawMap = () => ui.map.src = api.map(pos.lat, pos.lon, zoom);
 
-  /* ── Koordinaten-Setter mit Lock ────── */
+  /* –– Setter –– (sofort Refresh) */
   const setPos = (lat, lon) => {
-    if (locked) return;
+    if (Math.abs(lat - pos.lat) < 1e-6 && Math.abs(lon - pos.lon) < 1e-6) return; // unverändert
     pos.lat = lat; pos.lon = lon;
-    locked  = true;
     refresh();
   };
 
-  /* ── Koordinaten extrahieren ────────── */
-  function extract(txt) {
-    let lat, lon;
-
-    // 1) "lat,lon"
-    let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
-    if (m) [lat, lon] = m[0].split(',').map(Number);
-
-    // 2) "!1dLAT!2dLON"
-    if (lat === undefined) {
-      m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
-      if (m) { lat = +m[1]; lon = +m[2]; }
-    }
-
-    // 3) ..."lat":12.34,"lng":56.78...
-    if (lat === undefined) {
-      m = txt.match(/"lat":\s*(-?\d+\.\d+)\s*,\s*"lng":\s*(-?\d+\.\d+)/);
-      if (m) { lat = +m[1]; lon = +m[2]; }
-    }
-
-    if (!isNaN(lat) && !isNaN(lon)) setPos(lat, lon);
-  }
-
-  /* ── HUD ────────────────────────────── */
+  /* –– HUD –– */
   async function refresh() {
     if (!pos.lat) return;
 
@@ -107,7 +82,7 @@
     drawMap();
   }
 
-  /* ── DOM ────────────────────────────── */
+  /* –– DOM –– */
   const line = t => {
     const d = document.createElement('div');
     d.textContent = t;
@@ -152,7 +127,27 @@
     drawMap();
   }
 
-  /* ── GeoGuessr XHR-Sniffer ─────────── */
+  /* –– Koordinaten extrahieren –– */
+  function extract(txt) {
+    let lat, lon;
+
+    let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);                              // "lat,lon"
+    if (m) [lat, lon] = m[0].split(',').map(Number);
+
+    if (lat === undefined) {                                                 // "!1dLAT!2dLON"
+      m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
+      if (m) { lat = +m[1]; lon = +m[2]; }
+    }
+
+    if (lat === undefined) {                                                 // JSON "lat":…,"lng":…
+      m = txt.match(/"lat":\s*(-?\d+\.\d+)\s*,\s*"lng":\s*(-?\d+\.\d+)/);
+      if (m) { lat = +m[1]; lon = +m[2]; }
+    }
+
+    if (!isNaN(lat) && !isNaN(lon)) setPos(lat, lon);
+  }
+
+  /* –– GeoGuessr XHR –– */
   XMLHttpRequest.prototype.open = new Proxy(XMLHttpRequest.prototype.open, {
     apply(orig, xhr, args) {
       const [method, url] = args;
@@ -163,23 +158,21 @@
     }
   });
 
-  /* ── GeoGuessr fetch-Sniffer ───────── */
+  /* –– GeoGuessr fetch –– */
   const origFetch = window.fetch;
   window.fetch = function (...a) {
     return origFetch.apply(this, a).then(res => {
       try {
-        if (res.url.includes('MapsJsInternalService') || res.url.includes('/maps/')) {
+        if (res.url.includes('MapsJsInternalService') || res.url.includes('/maps/'))
           res.clone().text().then(extract).catch(()=>{});
-        }
       } catch {}
       return res;
     });
   };
 
-  /* ── OpenGuessr polling ─────────────── */
+  /* –– OpenGuessr polling –– */
   if (location.hostname.includes('openguessr.com')) {
     setInterval(() => {
-      if (locked) return;
       const ifr = document.querySelector('#PanoramaIframe');
       if (!ifr || !ifr.src) return;
 
@@ -199,14 +192,6 @@
       }
     }, 1000);
   }
-
-  /* ── Hotkey ─────────────────────────── */
-  document.addEventListener('keydown', e => {
-    if (e.key.toLowerCase() === 'q') {
-      locked = false;      // neuer Lock ab nächster Koordinate
-      refresh();           // falls schon Koord da, sofort anzeigen
-    }
-  });
 
   buildHUD();
 })();
