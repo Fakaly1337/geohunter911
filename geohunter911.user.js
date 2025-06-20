@@ -92,41 +92,49 @@
   if (document.body) buildHUD();
   else document.addEventListener('DOMContentLoaded', buildHUD);
 
-  /* GeoGuessr: XHR-Sniffer ------------------------------------- */
-  XMLHttpRequest.prototype.open = new Proxy(XMLHttpRequest.prototype.open, {
-    apply(orig, xhr, args) {
-      const [m, url] = args;
-      if (m === 'POST' && url.includes('MapsJsInternalService')) {
-        xhr.addEventListener('load', () => {
-          const m = xhr.responseText.match(/-?\d+\.\d+,-?\d+\.\d+/);
-          if (m) {
-            const [lat, lon] = m[0].split(',').map(Number);
-            latest.lat = lat; latest.lon = lon; latest.ready = true;
-          }
-        });
-      }
-      return orig.apply(xhr, args);
-    }
-  });
+  /* --- zentrale Koord-Extraktion -------------------------------- */
+function extract(txt) {
+  let lat, lon;
 
-  /* GeoGuessr: FETCH-Sniffer ----------------------------------- */
-  const origFetch = window.fetch;
-  window.fetch = function (...a) {
-    return origFetch.apply(this, a).then(res => {
-      try {
-        if (res.url.includes('MapsJsInternalService')) {
-          res.clone().text().then(txt => {
-            const m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
-            if (m) {
-              const [lat, lon] = m[0].split(',').map(Number);
-              latest.lat = lat; latest.lon = lon; latest.ready = true;
-            }
-          });
-        }
-      } catch (_) {}
-      return res;
-    });
-  };
+  // alter Treffer  "12.34,56.78"
+  let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
+  if (m) [lat, lon] = m[0].split(',').map(Number);
+
+  // neues gMaps-Pattern "!1dLAT!2dLON"
+  if (!lat) {
+    m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
+    if (m) { lat = +m[1]; lon = +m[2]; }
+  }
+
+  if (!isNaN(lat) && !isNaN(lon)) {
+    latest.lat = lat;
+    latest.lon = lon;
+    latest.ready = true;
+  }
+}
+
+/* --- GeoGuessr: XHR-Sniffer ----------------------------------- */
+XMLHttpRequest.prototype.open = new Proxy(XMLHttpRequest.prototype.open, {
+  apply(orig, xhr, args) {
+    const [m, url] = args;
+    if (m === 'POST' && url.includes('MapsJsInternalService')) {
+      xhr.addEventListener('load', () => extract(xhr.responseText));
+    }
+    return orig.apply(xhr, args);
+  }
+});
+
+/* --- GeoGuessr: fetch-Sniffer --------------------------------- */
+const origFetch = window.fetch;
+window.fetch = function (...a) {
+  return origFetch.apply(this, a).then(res => {
+    if (res.url.includes('MapsJsInternalService') || res.url.includes('/maps/')) {
+      res.clone().text().then(extract).catch(()=>{});
+    }
+    return res;
+  });
+};
+
 
   /* OpenGuessr: Iframe-Polling ---------------------------------- */
   if (location.hostname.includes('openguessr.com')) {
