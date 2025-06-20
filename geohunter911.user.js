@@ -52,20 +52,26 @@
 
   /* ── Extraktion (alt + neu) ─────────── */
   function extract(txt) {
-    let lat, lon;
+  let lat, lon;
 
-    // alt: "12.34,56.78"
-    let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
-    if (m) [lat, lon] = m[0].split(',').map(Number);
+  // 1) alt: "12.34,56.78"
+  let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
+  if (m) [lat, lon] = m[0].split(',').map(Number);
 
-    // neu: "!1dLAT!2dLON"
-    if (lat === undefined) {
-      m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
-      if (m) { lat = +m[1]; lon = +m[2]; }
-    }
-
-    if (!isNaN(lat) && !isNaN(lon)) setPos(lat, lon);
+  // 2) neu: "!1dLAT!2dLON"
+  if (lat === undefined) {
+    m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
+    if (m) { lat = +m[1]; lon = +m[2]; }
   }
+
+  // 3) JSON: ..."lat":12.34,"lng":56.78...
+  if (lat === undefined) {
+    m = txt.match(/"lat":\s*(-?\d+\.\d+)\s*,\s*"lng":\s*(-?\d+\.\d+)/);
+    if (m) { lat = +m[1]; lon = +m[2]; }
+  }
+
+  if (!isNaN(lat) && !isNaN(lon)) setPos(lat, lon);
+}
 
   /* ── HUD ────────────────────────────── */
   async function refresh() {
