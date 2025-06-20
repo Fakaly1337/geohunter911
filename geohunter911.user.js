@@ -1,33 +1,33 @@
 // ==UserScript==
-// @name         PlonkIT HUD (GeoGuessr + OpenGuessr)
-// @version      2025-06-20a
-// @description  Zeigt Kontinent/Land/State/Stadt + Yandex-Minikarte. API nur bei "Q".
+// @name         GeoHunter911 HUD
+// @namespace    Fakaly1337
+// @version      2025-06-21
+// @description  Kontinent/Land/State/Stadt + Yandex-Map. API-Calls nur nach Druck auf "Q".
 // @match        https://www.geoguessr.com/*
 // @match        https://openguessr.com/*
 // @grant        GM_xmlhttpRequest
 // @run-at       document-start
-// @updateURL    https://raw.githubusercontent.com/YOURUSER/YOURREPO/main/plonkit.user.js
-// @downloadURL  https://raw.githubusercontent.com/YOURUSER/YOURREPO/main/plonkit.user.js
+// @updateURL    https://raw.githubusercontent.com/Fakaly1337/geohunter911/main/geohunter911.user.js
+// @downloadURL  https://raw.githubusercontent.com/Fakaly1337/geohunter911/main/geohunter911.user.js
 // ==/UserScript==
 
 (() => {
   'use strict';
 
-  /* ── Konst ─────────────────────────── */
+  /* Konstanten --------------------------------------------------- */
   const IQ  = 'pk.8a4add797b142c1faca647ddf8d6b000';
   const GEO = p => `https://us1.locationiq.com/v1/${p}&key=${IQ}`;
   const MAP = (lat, lon, z) =>
     `https://static-maps.yandex.ru/1.x/?ll=${lon},${lat}&z=${z}&size=500,300&l=map&pt=${lon},${lat},pm2rdm&lang=en_US`;
 
-  /* ── State ─────────────────────────── */
-  const latest = { lat: 0, lon: 0, ready: false };
-  const shown  = { lat: 0, lon: 0 };
+  /* State -------------------------------------------------------- */
+  const latest = { lat: 0, lon: 0, ready: false };   // laufend eingesammelt
+  const shown  = { lat: 0, lon: 0 };                 // aktuell im HUD
   let   zoom   = 13;
+  const cache  = { cont: {}, cen: {}, rev: {} };
+  const ui     = {};
 
-  const cache = { cont: {}, cen: {}, rev: {} };  // Kontinent, Zentroiden, Reverse
-  const ui    = {};
-
-  /* ── Helpers ───────────────────────── */
+  /* Helper ------------------------------------------------------- */
   const jFetch = url => new Promise(res =>
     GM_xmlhttpRequest({ url, onload: r => res(JSON.parse(r.responseText)), onerror: () => res(null) })
   );
@@ -40,7 +40,7 @@
     return (Math.abs(dLat)>e?(dLat>0?'N':'S'):'')+(Math.abs(dLon)>e?(dLon>0?'E':'W'):'')||'Ctr';
   };
 
-  /* ── HUD-Build ─────────────────────── */
+  /* HUD ---------------------------------------------------------- */
   const line = t=>{
     const d=document.createElement('div');
     d.textContent=t;
@@ -50,15 +50,19 @@
 
   function buildHUD(){
     ui.box=Object.assign(document.createElement('div'),{style:'position:fixed;top:50px;left:10px;z-index:9999'});
-    ui.cont=line('Continent: N/A'); ui.country=line('Country:   N/A');
-    ui.state=line('State:     N/A'); ui.city=line('City:      N/A');
+    ui.cont    = line('Continent: N/A');
+    ui.country = line('Country:   N/A');
+    ui.state   = line('State:     N/A');
+    ui.city    = line('City:      N/A');
 
-    const wrap=Object.assign(document.createElement('div'),{style:'position:relative;margin-top:4px'});
-    ui.map=Object.assign(document.createElement('img'),{style:'display:block;width:500px;height:300px;border:2px solid #333;border-radius:6px'});
+    const wrap = Object.assign(document.createElement('div'),{style:'position:relative;margin-top:4px'});
+    ui.map = Object.assign(document.createElement('img'),{
+      style:'display:block;width:500px;height:300px;border:2px solid #333;border-radius:6px'
+    });
     wrap.appendChild(ui.map);
 
     ['+','−'].forEach((s,i)=>{
-      const b=Object.assign(document.createElement('div'),{
+      const b = Object.assign(document.createElement('div'),{
         textContent:s,
         style:`position:absolute;top:8px;right:${i?40:8}px;width:24px;height:24px;line-height:24px;text-align:center;background:rgba(0,0,0,.7);color:#fff;border-radius:3px;cursor:pointer`
       });
@@ -66,12 +70,15 @@
       wrap.appendChild(b);
     });
 
-    ui.box.appendChild(wrap);document.body.appendChild(ui.box);
+    ui.box.appendChild(wrap);
+    document.body.appendChild(ui.box);
   }
 
-  buildHUD(); // initial
+  /* Body ready? -------------------------------------------------- */
+  if (document.body) buildHUD();
+  else document.addEventListener('DOMContentLoaded', buildHUD);
 
-  /* ── GeoGuessr: XHR-Sniffer ─────────── */
+  /* GeoGuessr: XHR-Sniffer -------------------------------------- */
   XMLHttpRequest.prototype.open=new Proxy(XMLHttpRequest.prototype.open,{
     apply(o,xhr,[m,url]){if(m==='POST'&&url.includes('MapsJsInternalService')){
       xhr.addEventListener('load',()=>{
@@ -82,33 +89,36 @@
     }
   });
 
-  /* ── OpenGuessr: 1-Sek-Polling ──────── */
+  /* OpenGuessr: 1-Sek-Polling ----------------------------------- */
   if(location.hostname.includes('openguessr.com')){
     setInterval(()=>{
       const ifr=document.querySelector('#PanoramaIframe'); if(!ifr||!ifr.src) return;
-      let loc='';try{const u=new URL(ifr.src);
-        loc=u.searchParams.get('location')||u.searchParams.get('viewpoint')||'';if(!loc){
-          const m=ifr.src.match(/(?:location|viewpoint)=([^&]+)/);if(m)loc=decodeURIComponent(m[1]);}}
-      catch{}
-      if(loc){const[lat,lon]=loc.split(/[ ,]/).map(Number);if(!isNaN(lat)&&!isNaN(lon)){latest.lat=lat;latest.lon=lon;latest.ready=true;}}
+      let loc='';try{
+        const u=new URL(ifr.src);
+        loc=u.searchParams.get('location')||u.searchParams.get('viewpoint')||'';
+        if(!loc){const m=ifr.src.match(/(?:location|viewpoint)=([^&]+)/);if(m)loc=decodeURIComponent(m[1]);}
+      }catch{}
+      if(loc){
+        const[lat,lon]=loc.split(/[ ,]/).map(Number);
+        if(!isNaN(lat)&&!isNaN(lon)){latest.lat=lat;latest.lon=lon;latest.ready=true;}
+      }
     },1000);
   }
 
-  /* ── Q-Hotkey: erst jetzt API-Calls ─── */
+  /* Hotkey "Q" --------------------------------------------------- */
   document.addEventListener('keydown',async e=>{
     if(e.key.toLowerCase()!=='q'||!latest.ready) return;
 
-    // gleiche Koordinate wie vorher? → nichts neu auflösen
     const id=`${latest.lat.toFixed(5)},${latest.lon.toFixed(5)}`;
     let rev=cache.rev[id];
     if(!rev){
       rev=await jFetch(GEO(`reverse.php?lat=${latest.lat}&lon=${latest.lon}&format=json`));
       cache.rev[id]=rev;
     }
-
-    if(!rev?.address) return; // falls API ausfällt
+    if(!rev?.address) return;
 
     shown.lat=latest.lat; shown.lon=latest.lon;
+
     const {country='',state='',city='',country_code=''}=rev.address;
     const iso=country_code.toUpperCase();
 
@@ -127,11 +137,11 @@
       }
     }
 
-    ui.cont.textContent   =`Continent: ${cache.cont[iso]}`;
-    ui.country.textContent=`Country:   ${country||'N/A'}${cityInCountry}`;
-    ui.state.textContent  =`State:     ${state||'N/A'}`;
-    ui.city.textContent   =`City:      ${city||'N/A'}${posInCity}`;
-    ui.map.src=MAP(shown.lat,shown.lon,zoom);
+    ui.cont.textContent   = `Continent: ${cache.cont[iso]}`;
+    ui.country.textContent = `Country:   ${country||'N/A'}${cityInCountry}`;
+    ui.state.textContent   = `State:     ${state||'N/A'}`;
+    ui.city.textContent    = `City:      ${city||'N/A'}${posInCity}`;
+    ui.map.src = MAP(shown.lat, shown.lon, zoom);
   });
 
 })();
