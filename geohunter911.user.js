@@ -23,7 +23,7 @@
   let   zoom  = 13;
   const cache = { cont: {}, cen: {} };
   const ui    = {};
-  let   locked = false;                          // verhindert jitter
+  let   locked = false;     // verhindert Bewegung während des Spiels
 
   /* ── Helpers ────────────────────────── */
   const getJSON = url => new Promise(res =>
@@ -44,34 +44,34 @@
 
   /* ── Koordinaten-Setter mit Lock ────── */
   const setPos = (lat, lon) => {
-    if (locked) return;               // ignorieren, bis Nutzer Q drückt
+    if (locked) return;
     pos.lat = lat; pos.lon = lon;
-    locked  = true;                   // ab jetzt gesperrt
+    locked  = true;
     refresh();
   };
 
-  /* ── Extraktion (alt + neu) ─────────── */
+  /* ── Koordinaten extrahieren ────────── */
   function extract(txt) {
-  let lat, lon;
+    let lat, lon;
 
-  // 1) alt: "12.34,56.78"
-  let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
-  if (m) [lat, lon] = m[0].split(',').map(Number);
+    // 1) "lat,lon"
+    let m = txt.match(/-?\d+\.\d+,-?\d+\.\d+/);
+    if (m) [lat, lon] = m[0].split(',').map(Number);
 
-  // 2) neu: "!1dLAT!2dLON"
-  if (lat === undefined) {
-    m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
-    if (m) { lat = +m[1]; lon = +m[2]; }
+    // 2) "!1dLAT!2dLON"
+    if (lat === undefined) {
+      m = txt.match(/!1d(-?\d+\.\d+)!2d(-?\d+\.\d+)/);
+      if (m) { lat = +m[1]; lon = +m[2]; }
+    }
+
+    // 3) ..."lat":12.34,"lng":56.78...
+    if (lat === undefined) {
+      m = txt.match(/"lat":\s*(-?\d+\.\d+)\s*,\s*"lng":\s*(-?\d+\.\d+)/);
+      if (m) { lat = +m[1]; lon = +m[2]; }
+    }
+
+    if (!isNaN(lat) && !isNaN(lon)) setPos(lat, lon);
   }
-
-  // 3) JSON: ..."lat":12.34,"lng":56.78...
-  if (lat === undefined) {
-    m = txt.match(/"lat":\s*(-?\d+\.\d+)\s*,\s*"lng":\s*(-?\d+\.\d+)/);
-    if (m) { lat = +m[1]; lon = +m[2]; }
-  }
-
-  if (!isNaN(lat) && !isNaN(lon)) setPos(lat, lon);
-}
 
   /* ── HUD ────────────────────────────── */
   async function refresh() {
@@ -203,8 +203,8 @@
   /* ── Hotkey ─────────────────────────── */
   document.addEventListener('keydown', e => {
     if (e.key.toLowerCase() === 'q') {
-      locked = false;      // freigeben
-      refresh();           // evtl. alte Koord nochmal rendern
+      locked = false;      // neuer Lock ab nächster Koordinate
+      refresh();           // falls schon Koord da, sofort anzeigen
     }
   });
 
